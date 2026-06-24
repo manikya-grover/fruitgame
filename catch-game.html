@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Catch the Fruit 🍎</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: system-ui, sans-serif;
+    background: linear-gradient(160deg, #1e3c72, #2a5298);
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    user-select: none;
+  }
+  h1 { margin: 18px 0 6px; font-size: 1.6rem; }
+  #hud { display: flex; gap: 24px; font-size: 1.1rem; margin-bottom: 8px; }
+  #hud b { color: #ffd84d; }
+  #game {
+    position: relative;
+    width: 420px;
+    height: 520px;
+    background: rgba(255,255,255,0.07);
+    border: 2px solid rgba(255,255,255,0.2);
+    border-radius: 14px;
+    overflow: hidden;
+    cursor: crosshair;
+    touch-action: none;
+  }
+  #basket {
+    position: absolute;
+    bottom: 10px;
+    width: 80px;
+    height: 42px;
+    font-size: 40px;
+    text-align: center;
+    line-height: 42px;
+    transform: translateX(-50%);
+    pointer-events: none;
+  }
+  .item {
+    position: absolute;
+    font-size: 30px;
+    pointer-events: none;
+  }
+  #msg {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: rgba(0,0,0,0.55);
+    text-align: center;
+    padding: 20px;
+  }
+  #msg.hidden { display: none; }
+  button {
+    font-size: 1.1rem;
+    padding: 10px 22px;
+    border: none;
+    border-radius: 8px;
+    background: #ffd84d;
+    color: #1e3c72;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  button:hover { background: #ffe27a; }
+  p.hint { margin-top: 10px; opacity: 0.8; font-size: 0.9rem; }
+  #controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    font-size: 0.95rem;
+  }
+  #controls input[type="range"] { width: 160px; accent-color: #ffd84d; cursor: pointer; }
+  #speedVal { color: #ffd84d; font-weight: 700; min-width: 38px; text-align: left; }
+</style>
+</head>
+<body>
+  <h1>🍎 Catch the Fruit</h1>
+  <div id="hud">Score: <b id="score">0</b> &nbsp; Lives: <b id="lives">3</b></div>
+  <div id="controls">
+    <label for="speed">Speed</label>
+    <input id="speed" type="range" min="0.5" max="2" step="0.05" value="1">
+    <span id="speedVal">1.0x</span>
+  </div>
+  <div id="game">
+    <div id="basket">🧺</div>
+    <div id="msg">
+      <div style="font-size:1.3rem">Catch fruit, dodge the bombs 💣</div>
+      <button id="startBtn">Start Game</button>
+    </div>
+  </div>
+  <p class="hint">Move your mouse (or arrow keys) to steer the basket.</p>
+
+<script>
+const game = document.getElementById('game');
+const basket = document.getElementById('basket');
+const scoreEl = document.getElementById('score');
+const livesEl = document.getElementById('lives');
+const msg = document.getElementById('msg');
+const startBtn = document.getElementById('startBtn');
+
+const W = 420, H = 520;
+const FRUITS = ['🍎','🍊','🍇','🍓','🍌','🍑'];
+let basketX = W / 2;
+let score = 0, lives = 3;
+let items = [];
+let running = false;
+let spawnTimer = 0;
+let lastTime = 0;
+let speedMult = 1; // live-adjustable fall-speed multiplier (set by the Speed slider)
+
+function reset() {
+  score = 0; lives = 3; items = []; basketX = W / 2;
+  items.forEach(i => i.el.remove());
+  document.querySelectorAll('.item').forEach(e => e.remove());
+  scoreEl.textContent = score;
+  livesEl.textContent = lives;
+}
+
+function spawn() {
+  const isBomb = Math.random() < 0.22;
+  const el = document.createElement('div');
+  el.className = 'item';
+  el.textContent = isBomb ? '💣' : FRUITS[Math.floor(Math.random()*FRUITS.length)];
+  const x = 20 + Math.random() * (W - 60);
+  el.style.left = x + 'px';
+  el.style.top = '-30px';
+  game.appendChild(el);
+  items.push({ el, x, y: -30, vy: (2 + Math.random() * 2 + score * 0.02) * 0.95, bomb: isBomb });
+}
+
+// Decrement a life, update the HUD, and end the game if none remain.
+// Returns true if the game ended (so the loop can bail out).
+function loseLife() {
+  lives = Math.max(0, lives - 1);
+  livesEl.textContent = lives;
+  if (lives <= 0) { endGame(); return true; }
+  return false;
+}
+
+let flashTimer = null;
+function flashHit() {
+  game.style.boxShadow = 'inset 0 0 60px rgba(255,60,60,0.9)';
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => { game.style.boxShadow = ''; }, 150);
+}
+
+function endGame() {
+  running = false;
+  msg.classList.remove('hidden');
+  msg.innerHTML = `<div style="font-size:1.5rem">Game Over</div>
+    <div>Final score: <b style="color:#ffd84d">${score}</b></div>
+    <button id="startBtn">Play Again</button>`;
+  document.getElementById('startBtn').addEventListener('click', start);
+}
+
+function loop(t) {
+  if (!running) return;
+  const dt = Math.min((t - lastTime) / 16.67, 3);
+  lastTime = t;
+
+  spawnTimer -= dt;
+  if (spawnTimer <= 0) {
+    spawn();
+    spawnTimer = 45 - Math.min(score, 25);
+  }
+
+  const basketLeft = basketX - 40, basketRight = basketX + 40;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    it.y += it.vy * dt * speedMult;
+    it.el.style.top = it.y + 'px';
+
+    // caught by the basket
+    if (it.y > H - 55 && it.y < H - 5 && it.x > basketLeft - 15 && it.x < basketRight - 15) {
+      it.el.remove(); items.splice(i, 1);
+      if (it.bomb) { flashHit(); if (loseLife()) return; }
+      else { score++; scoreEl.textContent = score; }
+      continue;
+    }
+    // fell off the bottom
+    if (it.y > H) {
+      it.el.remove(); items.splice(i, 1);
+      if (!it.bomb) { if (loseLife()) return; } // missing a fruit costs a life; dodged bombs are safe
+    }
+  }
+  requestAnimationFrame(loop);
+}
+
+function start() {
+  reset();
+  msg.classList.add('hidden');
+  running = true;
+  spawnTimer = 0;
+  lastTime = performance.now();
+  requestAnimationFrame(loop);
+}
+
+function moveTo(clientX) {
+  const rect = game.getBoundingClientRect();
+  const scale = W / rect.width; // map screen px -> game coords (handles any zoom/scaling)
+  basketX = Math.max(40, Math.min(W - 40, (clientX - rect.left) * scale));
+  basket.style.left = basketX + 'px';
+}
+// Track pointer anywhere over the window so the basket follows reliably (mouse, touch, pen)
+window.addEventListener('pointermove', e => moveTo(e.clientX));
+game.addEventListener('pointerdown', e => moveTo(e.clientX));
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft') basketX = Math.max(40, basketX - 30);
+  if (e.key === 'ArrowRight') basketX = Math.min(W - 40, basketX + 30);
+  basket.style.left = basketX + 'px';
+});
+
+basket.style.left = basketX + 'px';
+startBtn.addEventListener('click', start);
+
+const speedSlider = document.getElementById('speed');
+const speedVal = document.getElementById('speedVal');
+speedSlider.addEventListener('input', () => {
+  speedMult = parseFloat(speedSlider.value);
+  speedVal.textContent = speedMult.toFixed(1) + 'x';
+});
+</script>
+</body>
+</html>
