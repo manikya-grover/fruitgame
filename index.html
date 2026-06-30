@@ -15,14 +15,16 @@
     align-items: center;
     min-height: 100vh;
     user-select: none;
+    overflow-x: hidden;
+    padding: 8px;
   }
   h1 { margin: 18px 0 6px; font-size: 1.6rem; }
   #hud { display: flex; gap: 24px; font-size: 1.1rem; margin-bottom: 8px; }
   #hud b { color: #ffd84d; }
   #game {
     position: relative;
-    width: 420px;
-    height: 520px;
+    width: min(420px, 92vw);
+    height: min(520px, 70vh);
     background: rgba(255,255,255,0.07);
     border: 2px solid rgba(255,255,255,0.2);
     border-radius: 14px;
@@ -71,6 +73,8 @@
   }
   button:hover { background: #ffe27a; }
   p.hint { margin-top: 10px; opacity: 0.8; font-size: 0.9rem; }
+  #credit { margin-top: 14px; opacity: 0.75; font-size: 0.85rem; letter-spacing: 0.3px; }
+  #credit strong { color: #ffd84d; }
   #controls {
     display: flex;
     align-items: center;
@@ -97,7 +101,8 @@
       <button id="startBtn">Start Game</button>
     </div>
   </div>
-  <p class="hint">Move your mouse (or arrow keys) to steer the basket.</p>
+  <p class="hint">Drag your finger, move the mouse, or use arrow keys to steer the basket.</p>
+  <footer id="credit">Created by <strong>Manikya Grover</strong></footer>
 
 <script>
 const game = document.getElementById('game');
@@ -107,7 +112,7 @@ const livesEl = document.getElementById('lives');
 const msg = document.getElementById('msg');
 const startBtn = document.getElementById('startBtn');
 
-const W = 420, H = 520;
+let W = 420, H = 520; // game-area size in px; kept in sync with the element (responsive)
 const FRUITS = ['🍎','🍊','🍇','🍓','🍌','🍑'];
 let basketX = W / 2;
 let score = 0, lives = 3;
@@ -197,6 +202,7 @@ function loop(t) {
 
 function start() {
   reset();
+  sizeGame();
   msg.classList.add('hidden');
   running = true;
   spawnTimer = 0;
@@ -210,8 +216,22 @@ function moveTo(clientX) {
   basketX = Math.max(40, Math.min(W - 40, (clientX - rect.left) * scale));
   basket.style.left = basketX + 'px';
 }
-// Track pointer anywhere over the window so the basket follows reliably (mouse, touch, pen)
-window.addEventListener('pointermove', e => moveTo(e.clientX));
+// Keep the game-area size in sync with the element so coordinates stay correct on any screen.
+function sizeGame() {
+  const r = game.getBoundingClientRect();
+  W = r.width; H = r.height;
+  basketX = Math.max(40, Math.min(W - 40, basketX));
+  basket.style.left = basketX + 'px';
+}
+window.addEventListener('resize', sizeGame);
+window.addEventListener('orientationchange', sizeGame);
+
+// Track pointer anywhere over the window so the basket follows reliably (mouse, touch, pen).
+// passive:false lets us stop the page from scrolling while dragging on a phone.
+window.addEventListener('pointermove', e => {
+  if (e.pointerType === 'touch' && running) e.preventDefault();
+  moveTo(e.clientX);
+}, { passive: false });
 game.addEventListener('pointerdown', e => moveTo(e.clientX));
 document.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft') basketX = Math.max(40, basketX - 30);
@@ -220,6 +240,7 @@ document.addEventListener('keydown', e => {
 });
 
 basket.style.left = basketX + 'px';
+sizeGame(); // measure the real area once on load
 startBtn.addEventListener('click', start);
 
 const speedSlider = document.getElementById('speed');
